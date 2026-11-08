@@ -1,0 +1,85 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{restaurant-docs}[2026/11/01 Restaurant API documentstijl]
+
+\RequirePackage[a4paper,margin=25mm]{geometry}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[dutch]{babel}
+\RequirePackage{lmodern}
+\RequirePackage{microtype}
+\RequirePackage{xcolor}
+\RequirePackage{booktabs}
+\RequirePackage{longtable}
+\RequirePackage{array}
+\RequirePackage{tabularx}
+\RequirePackage{enumitem}
+\RequirePackage{hyperref}
+\RequirePackage{listings}
+\RequirePackage{tikz}
+\RequirePackage{fancyhdr}
+\RequirePackage{titlesec}
+\RequirePackage{caption}
+\RequirePackage{needspace}
+
+\usetikzlibrary{positioning,arrows.meta,calc,fit,shapes.multipart}
+
+\definecolor{navy}{HTML}{18344B}
+\definecolor{teal}{HTML}{007E80}
+\definecolor{graytext}{HTML}{566575}
+\definecolor{codebg}{HTML}{EFF4F6}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=teal,
+  urlcolor=teal,
+  pdftitle={Restaurant API},
+  pdfauthor={Ali Khoshkam}
+}
+
+\titleformat{\section}{\Large\bfseries\color{navy}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\large\bfseries\color{teal}}{\thesubsection}{0.7em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.6em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{graytext}Restaurant API \textbar{} Backend 2.0 -- V4.3}
+\fancyhead[R]{\small\color{graytext}\leftmark}
+\fancyfoot[L]{\small\color{graytext}Ali Khoshkam}
+\fancyfoot[R]{\small\color{graytext}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codebg},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  aboveskip=0.8em,
+  belowskip=0.8em
+}
+
+\newcommand{\docmeta}[1]{%
+  \begin{titlepage}
+    \color{navy}
+    {\color{teal}\rule{18mm}{2.2mm}\par}
+    \vspace{18mm}
+    {\fontsize{28}{34}\selectfont\bfseries #1\par}
+    \vspace{12mm}
+    {\large Restaurantreserveringen, bestellingen en menukaart\par}
+    \vspace{8mm}
+    {\large Ali Khoshkam\par}
+    Leerlijn Backend (30~EC) -- Eindopdracht versie 4.3\\
+    Inleverdatum: 8 november 2026\\
+    Documentversie: 1.1 \textbar{} LaTeX-bron \today
+  \end{titlepage}
+  \tableofcontents
+  \clearpage
+}
+
+\newcommand{\entitybox}[3]{%
+  \node[entity] (#1) {#2\\[2pt]\footnotesize #3};
+}

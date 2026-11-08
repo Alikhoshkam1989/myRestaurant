@@ -1,0 +1,259 @@
+\documentclass[11pt]{article}
+\usepackage{restaurant-docs}
+
+\tikzset{
+  entity/.style={
+    draw=navy, line width=0.6pt, fill=white, align=left,
+    inner sep=5pt, text width=38mm, font=\sffamily\small
+  },
+  ename/.style={fill=navy, text=white, font=\sffamily\bfseries\small, text width=38mm, align=left, inner sep=5pt},
+  actor/.style={draw=navy, fill=teal!12, rounded corners=1pt, font=\sffamily\bfseries\scriptsize, align=center, text width=22mm, minimum height=11mm},
+  seqmsg/.style={-{Latex}, teal, thick},
+  seqret/.style={-{Latex}, teal, densely dashed}
+}
+
+\begin{document}
+\docmeta{Technisch ontwerp}
+
+\section{Inleiding en user stories}
+Ik bouw een API voor een restaurant. Reserveringen, de menukaart en de rekening
+stonden eerst los van elkaar. In deze applicatie horen ze bij één database.
+Een klant ziet alleen de eigen reserveringen. Personeel beheert de kaart, de
+tafels, de bestellingen en de facturen. Inloggen loopt via Keycloak. De site
+\emph{The Table} zit in dezelfde JAR en is Engelstalig.
+
+\begin{description}[style=nextline,leftmargin=1.6cm]
+  \item[US1] Als klant wil ik mij registreren en veilig inloggen, zodat ik mijn
+    eigen reserveringen kan beheren zonder toegang tot gegevens van andere klanten.
+  \item[US2] Als klant wil ik een beschikbare tafel reserveren, mijn reservering
+    wijzigen en annuleren, zodat mijn restaurantbezoek passend en actueel is.
+  \item[US3] Als personeelslid wil ik bestellingen met meerdere producten beheren
+    en daarvoor een factuur met betaalstatus maken, zodat ik de bediening en
+    afrekening centraal kan afhandelen.
+  \item[US4] Als personeelslid wil ik producten, categorieën, tafels en
+    productafbeeldingen beheren, zodat klanten en medewerkers actuele
+    restaurantgegevens gebruiken.
+\end{description}
+
+Facturen en tafels zijn ondersteunend aan reserveren en bestellen. Naast accounts
+bevat het systeem drie operationele gebieden: reserveringen, bestellingen/facturen
+en menukaartbeheer met upload en download.
+
+\section{Architectuur}
+De code staat in vier lagen:
+
+\begin{itemize}
+  \item \textbf{Controller} vertaalt HTTP naar gevalideerde DTO-input en zet
+        statuscodes. Entiteiten verlaten deze laag niet.
+  \item \textbf{Service} beheert transacties, bedrijfsregels en mapping via
+        \texttt{Views.of()}.
+  \item \textbf{Repository} bevat Spring Data JPA, unieke queries en
+        \texttt{PESSIMISTIC\_WRITE}-locks.
+  \item \textbf{Model} bevat acht JPA-entiteiten met foreign keys, unieke
+        constraints en versienummers.
+\end{itemize}
+
+\texttt{open-in-view} staat uit. JWT-validatie controleert handtekening, issuer,
+audience \texttt{restaurant-api} en subject. H2 is de standaarddatabase;
+PostgreSQL is optioneel via omgevingsvariabelen.
+
+\section{Functionele eisen --- klant}
+\begin{longtable}{@{}>{\bfseries}p{1.2cm}p{1.6cm}p{11.2cm}@{}}
+\toprule
+Eis & Story & Acceptatiecriterium \\
+\midrule
+\endhead
+F01 & US1 & Nieuwe accounts registreren via Keycloak en krijgen automatisch CUSTOMER. \\
+F02 & US1 & Keycloak authenticeert en geeft een ondertekend access token voor restaurant-api. \\
+F03 & US1 & Alleen een Keycloak-beheerder kent STAFF toe; zelfregistratie geeft geen personeelsrechten. \\
+F04 & US1 & Een klant kan geen reservering van een ander lezen, wijzigen of annuleren (HTTP 403). \\
+F05 & US2 & Een ingelogde gebruiker maakt een reservering met naam, tafel, UTC-begintijd, gasten en opmerkingen. \\
+F06 & US2 & Alleen een toekomstige begintijd is geldig; eindtijd is begintijd plus twee uur. \\
+F07 & US2 & Niet-inzetbare tafels en groepen groter dan de capaciteit worden geweigerd. \\
+F08 & US2 & Overlappende actieve reserveringen voor dezelfde tafel worden geweigerd; aansluitende tijdvakken mogen. \\
+F09 & US2 & Eigenaar en personeel wijzigen een actieve reservering; geannuleerde reserveringen blijven vergrendeld. \\
+F10 & US2 & DELETE annuleert met behoud van historie en geeft het tijdvak vrij. \\
+F11 & US2 & GET toont klanten alleen eigen reserveringen en personeel de volledige lijst. \\
+\bottomrule
+\end{longtable}
+
+\section{Functionele eisen --- personeel}
+\begin{longtable}{@{}>{\bfseries}p{1.2cm}p{1.6cm}p{11.2cm}@{}}
+\toprule
+Eis & Story & Acceptatiecriterium \\
+\midrule
+\endhead
+F12 & US3 & Personeel beheert een bestelling met tafel en 1 tot 100 productregels. \\
+F13 & US3 & Een product mag per bestelling eenmaal voorkomen (hoeveelheid 1--100); onbeschikbare producten worden geweigerd. \\
+F14 & US3 & De server berekent het totaal uit vastgelegde eenheidsprijzen maal aantallen (\texttt{BigDecimal}). \\
+F15 & US3 & Bestaande bestelregels behouden productnaam en eenheidsprijs bij menukaartwijzigingen. \\
+F16 & US3 & Maximaal één factuur per bestelling; het bedrag komt uit de bestelling. \\
+F17 & US3 & Een gefactureerde bestelling kan niet worden gewijzigd of verwijderd zolang de factuur bestaat. \\
+F18 & US3 & Personeel markeert een factuur als betaald; betaald kan niet terug of verwijderd. \\
+F19 & US3 & Een onbetaalde factuur mag worden verwijderd, zodat de bestelling weer bewerkbaar is. \\
+F20 & US4 & Personeel beheert categorieën en producten; verwijderen alleen indien ongebruikt. \\
+F21 & US4 & Personeel beheert tafels; gebruikte tafels en gereserveerde capaciteit zijn beschermd. \\
+F22 & US4 & Klanten en personeel lezen catalogus en tafels; mutaties vereisen STAFF. \\
+F23 & US4 & Personeel uploadt per product één PNG/JPEG; klanten en personeel downloaden die. \\
+\bottomrule
+\end{longtable}
+
+\section{Niet-functionele eisen}
+\begin{longtable}{@{}>{\bfseries}p{1.2cm}p{1.8cm}p{11cm}@{}}
+\toprule
+Eis & Story & Acceptatiecriterium \\
+\midrule
+\endhead
+N01 & US1 & JWT-handtekening, issuer, audience en verloopdatum worden gevalideerd; ontbrekend token geeft 401. \\
+N02 & US2 & Reserveringscontrole en opslag gebeuren in één transactie met een schrijflock op de tafel. \\
+N03 & US3 & Foreign keys, unieke factuur-orderkoppeling, versienummers en numerieke constraints bewaken integriteit. \\
+N04 & US4 & Uploads maximaal 2~MiB en 16 miljoen pixels; paden komen nooit uit de bestandsnaam. \\
+N05 & US1--4 & Java~21 / Spring Boot met gescheiden controllers, services, repositories en DTO-records. \\
+N06 & US1--4 & Bekende fouten als 400/403/404/409/413/415; interne details blijven verborgen. \\
+N07 & US2--3 & Maven verify: minstens twintig unit-tests en integratietests; PricingService en ReservationPolicy 100\% line coverage. \\
+N08 & US1--4 & JDBC is extern instelbaar; H2 standaard, PostgreSQL-driver meegeleverd. \\
+N09 & US4 & \texttt{data.sql} laadt demonstratiegegevens zonder bestaande rijen te overschrijven. \\
+\bottomrule
+\end{longtable}
+
+\section{Klassendiagram van het domein}
+Figuur~\ref{fig:klassen} toont acht entiteiten met kardinaliteiten. Attributen
+sluiten aan bij de Java-klassen; methodes zijn weggelaten. \texttt{id} en
+\texttt{version} ondersteunen opslag en gelijktijdige wijzigingen.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  font=\sffamily,
+  box/.style={
+    rectangle split, rectangle split parts=2, draw=navy, line width=0.7pt,
+    rectangle split part fill={navy,white}, text=navy, inner sep=4pt,
+    text width=39mm, font=\scriptsize
+  }
+]
+\node[box] (cat) {\textcolor{white}{\textbf{Category}}
+  \nodepart{two} id, version\\name, description};
+\node[box, right=8mm of cat] (prod) {\textcolor{white}{\textbf{Product}}
+  \nodepart{two} id, version\\name, price, available\\category};
+\node[box, right=8mm of prod] (img) {\textcolor{white}{\textbf{ProductImage}}
+  \nodepart{two} id, version\\contentType, content\\product};
+
+\node[box, below=16mm of cat] (ord) {\textcolor{white}{\textbf{RestaurantOrder}}
+  \nodepart{two} id, version, createdAt\\total, diningTable, lines};
+\node[box, below=16mm of prod] (line) {\textcolor{white}{\textbf{OrderLine}}
+  \nodepart{two} id, version, quantity\\unitPrice, productName\\order, product};
+\node[box, below=16mm of img] (tab) {\textcolor{white}{\textbf{DiningTable}}
+  \nodepart{two} id, version\\tableNumber, seats\\available};
+
+\node[box, below=16mm of ord] (inv) {\textcolor{white}{\textbf{Invoice}}
+  \nodepart{two} id, version, createdAt\\total, paid, order};
+\node[box, below=16mm of tab] (res) {\textcolor{white}{\textbf{Reservation}}
+  \nodepart{two} id, version, customerSubject\\customerName, diningTable\\startsAt, endsAt, guests\\remarks, cancelled};
+
+\draw[teal, thick] (cat) -- node[above,font=\tiny\color{teal}]{1} node[above,pos=0.85,font=\tiny\color{teal}]{0..*} (prod);
+\draw[teal, thick] (prod) -- node[above,font=\tiny\color{teal}]{1} node[above,pos=0.85,font=\tiny\color{teal}]{0..1} (img);
+\draw[teal, thick] (prod) -- node[right,font=\tiny\color{teal}]{1} node[right,pos=0.85,font=\tiny\color{teal}]{0..*} (line);
+\draw[teal, thick] (ord) -- node[above,font=\tiny\color{teal}]{1} node[above,pos=0.85,font=\tiny\color{teal}]{1..*} (line);
+\draw[teal, thick] (ord) -- node[left,font=\tiny\color{teal}]{1} node[left,pos=0.85,font=\tiny\color{teal}]{0..1} (inv);
+\draw[teal, thick] (tab) -- node[right,font=\tiny\color{teal}]{1} node[right,pos=0.85,font=\tiny\color{teal}]{0..*} (res);
+\draw[teal, thick] (tab.west) -- ++(-6mm,0) |- (ord.east)
+  node[at start,left,font=\tiny\color{teal}]{1}
+  node[near end,above,font=\tiny\color{teal}]{0..*};
+\end{tikzpicture}
+\caption{Domeinmodel: één-op-één voor factuur en productafbeelding; overige relaties één-op-veel.}
+\label{fig:klassen}
+\end{figure}
+
+\texttt{OrderLine} koppelt bestelling en product met hoeveelheid en historische
+prijs. Een geannuleerde reservering blijft bestaan.
+
+\section{Sequentie 1 --- reservering maken}
+Figuur~\ref{fig:seq-res} toont \texttt{POST /api/reservations}. Eigenaarschap
+komt uit het JWT-subject. De transactie houdt de tafellock vast tot opslag.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize, x=22mm, y=-9mm]
+  \foreach \i/\n in {0/HTTP client,1/Reservation Controller,2/Reservation Service,3/DiningTable Repo,4/Reservation Policy,5/Reservation Repo} {
+    \node[actor] (a\i) at (\i,0) {\n};
+    \draw[graytext, densely dashed] (a\i.south) -- ++(0,-12.2);
+  }
+  \draw[seqmsg] (0,-1.2) -- node[above,font=\tiny]{POST input + token} (1,-1.2);
+  \draw[seqmsg] (1,-2.1) -- node[above,font=\tiny]{create(input, subject)} (2,-2.1);
+  \draw[seqmsg] (2,-3.0) -- node[above,font=\tiny]{findLockedById} (3,-3.0);
+  \draw[seqret] (3,-3.9) -- node[above,font=\tiny]{DiningTable / 404} (2,-3.9);
+  \draw[seqmsg] (2,-4.8) -- node[above,font=\tiny]{validate(...)} (4,-4.8);
+  \draw[seqret] (4,-5.7) -- node[above,font=\tiny]{endsAt / 400, 409} (2,-5.7);
+  \draw[seqmsg] (2,-6.6) -- node[above,font=\tiny]{overlaps(...)} (5,-6.6);
+  \draw[seqret] (5,-7.5) -- node[above,font=\tiny]{boolean} (2,-7.5);
+  \draw[seqmsg] (2,-8.4) -- node[above,font=\tiny]{save (geen overlap)} (5,-8.4);
+  \draw[seqret] (5,-9.3) -- node[above,font=\tiny]{Reservation} (2,-9.3);
+  \draw[seqret] (2,-10.2) -- node[above,font=\tiny]{ReservationView} (1,-10.2);
+  \draw[seqret] (1,-11.1) -- node[above,font=\tiny]{201 + Location} (0,-11.1);
+\end{tikzpicture}
+\caption{Aanmaken van een reservering met tafellock en overlapcontrole.}
+\label{fig:seq-res}
+\end{figure}
+
+Alternatieven: geen token 401; ontbrekende tafel 404; ongeldig tijdstip of
+capaciteit 400; tafel niet inzetbaar of overlap 409. Bij overlap wordt
+\texttt{save()} niet uitgevoerd. De integratietest bewijst één winnaar bij twee
+gelijktijdige boekingen.
+
+\section{Sequentie 2 --- factuur maken}
+Figuur~\ref{fig:seq-inv} toont \texttt{POST /api/invoices} (alleen STAFF). Het
+bedrag komt uit de bestelling, niet uit de requestbody.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize, x=28mm, y=-9mm]
+  \foreach \i/\n in {0/HTTP personeel,1/Invoice Controller,2/Invoice Service,3/Order Repo,4/Invoice Repo} {
+    \node[actor] (b\i) at (\i,0) {\n};
+    \draw[graytext, densely dashed] (b\i.south) -- ++(0,-10.4);
+  }
+  \draw[seqmsg] (0,-1.2) -- node[above,font=\tiny]{POST \{orderId\} + token} (1,-1.2);
+  \draw[seqmsg] (1,-2.1) -- node[above,font=\tiny]{create(input)} (2,-2.1);
+  \draw[seqmsg] (2,-3.0) -- node[above,font=\tiny]{findLockedById} (3,-3.0);
+  \draw[seqret] (3,-3.9) -- node[above,font=\tiny]{RestaurantOrder / 404} (2,-3.9);
+  \draw[seqmsg] (2,-4.8) -- node[above,font=\tiny]{existsByOrderId} (4,-4.8);
+  \draw[seqret] (4,-5.7) -- node[above,font=\tiny]{boolean} (2,-5.7);
+  \draw[seqmsg] (2,-6.6) -- node[above,font=\tiny]{save (nog geen factuur)} (4,-6.6);
+  \draw[seqret] (4,-7.5) -- node[above,font=\tiny]{Invoice} (2,-7.5);
+  \draw[seqret] (2,-8.4) -- node[above,font=\tiny]{InvoiceView} (1,-8.4);
+  \draw[seqret] (1,-9.3) -- node[above,font=\tiny]{201 + Location} (0,-9.3);
+\end{tikzpicture}
+\caption{Aanmaken van een factuur met orderlock en unieke orderkoppeling.}
+\label{fig:seq-inv}
+\end{figure}
+
+Alternatieven: geen STAFF 403; bestelling ontbreekt 404; bestaande factuur 409.
+De unieke \texttt{order\_id}-constraint is een tweede verdedigingslaag.
+\texttt{createdAt} komt uit \texttt{Clock}, \texttt{total} uit de bestelling,
+\texttt{paid} start als \texttt{false}.
+
+\section{Technische afspraken, verificatie en bronnen}
+Verwijderregels beschermen referenties: een categorie met producten, een gebruikt
+product en een gebruikte tafel leveren 409. Tijdwaarden zijn UTC zonder suffix.
+Bedragen zijn EUR-eindprijzen zonder btw-uitsplitsing.
+
+Verificatie: \texttt{mvn clean verify} met Java~21 gaf 42 tests, 0 fouten
+(1~november 2026). JaCoCo bewaakt 100\% line coverage voor
+\texttt{PricingService} en \texttt{ReservationPolicy}. Zie
+\texttt{docs/verification.md}.
+
+\subsection{Bronnen}
+\begin{enumerate}
+  \item Ali Khoshkam, \emph{idee fase backend 2.pdf}, aangeleverd lokaal.
+  \item NOVI, \emph{Eindopdracht Backend v4.3.pdf}, inclusief quickscan en rubric.
+  \item Spring Boot: \url{https://docs.spring.io/spring-boot/3.5/system-requirements.html}
+  \item Spring Security JWT: \url{https://docs.spring.io/spring-security/reference/6.5/servlet/oauth2/resource-server/jwt.html}
+  \item Keycloak-import: \url{https://www.keycloak.org/server/importExport}
+\end{enumerate}
+
+Ik heb dit ontwerp zelf gemaakt. OpenAI Codex heeft me geholpen bij stukken
+tekst en uitleg. De prompts die ik zelf heb gestuurd staan in
+\texttt{docs/ai-prompts.md}. De diagrammen horen bij de klassen in de broncode.
+
+Broncode: \url{https://github.com/Alikhoshkam1989/myRestaurant}
+
+\end{document}

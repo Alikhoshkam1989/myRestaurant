@@ -1,0 +1,191 @@
+\documentclass[11pt]{article}
+\usepackage{restaurant-docs}
+
+\begin{document}
+\docmeta{API-documentatie}
+
+\section{Gebruik, authenticatie en foutcodes}
+Dit is de API van het restaurant. Lokaal draait hij op
+\texttt{http://localhost:8080}. Importeer
+\texttt{exports/restaurant.postman\_collection.json} en loop de requests per map
+af.
+
+Voor gewone logins en registratie: Authorization Code + PKCE (S256) via Keycloak
+op \texttt{http://localhost:8081/realms/restaurant}. Client:
+\texttt{restaurant-postman}; callback:
+\texttt{https://oauth.pstmn.io/v1/callback}. Scope: \texttt{openid profile email}.
+
+Lokale demoaccounts: \texttt{klant} / \texttt{Klant-Demo-2026!} (CUSTOMER) en
+\texttt{personeel} / \texttt{Personeel-Demo-2026!} (STAFF). Nieuwe registraties
+krijgen CUSTOMER. Dit zijn uitsluitend lokale demogegevens.
+
+\begin{lstlisting}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+\end{lstlisting}
+
+GET geeft 200; POST 201 met Location; PUT 200 (afbeelding 204); DELETE 204.
+Fouten: 400 invoer, 401 token, 403 rechten/eigenaarschap, 404 ontbrekend, 405
+methode, 409 conflict, 413 uploadgrootte, 415 bestandstype. Applicatiefouten
+gebruiken ProblemDetail.
+
+\begin{lstlisting}
+{"type":"about:blank","title":"Conflict","status":409,
+ "detail":"Table is reserved during this time slot"}
+\end{lstlisting}
+
+Ids zijn positieve database-identifiers. Datum/tijd is UTC zonder suffix;
+bedragen zijn EUR-eindprijzen. Er zijn geen lijstfilters of paginering.
+
+\section{Categorieën}
+Categorie beheren. Verwijderen is alleen mogelijk zonder gekoppelde producten.
+GET: CUSTOMER en STAFF. POST, PUT, DELETE: STAFF.
+
+\texttt{GET /api/categories} --- lijst (200).
+\texttt{GET /api/categories/\{id\}} --- één object (200/404).
+\texttt{POST /api/categories} --- aanmaken (201 + Location).
+\texttt{PUT /api/categories/\{id\}} --- wijzigen (200).
+\texttt{DELETE /api/categories/\{id\}} --- verwijderen indien ongebruikt (204/409).
+
+\begin{lstlisting}
+POST {"name":"Desserts","description":"Nagerechten"}
+201  {"id":3,"name":"Desserts","description":"Nagerechten"}
+\end{lstlisting}
+
+\section{Producten}
+Producten beheren. Een gebruikt product kan niet worden verwijderd; zet
+\texttt{available} op \texttt{false}. GET: CUSTOMER en STAFF. POST, PUT,
+DELETE: STAFF.
+
+\texttt{GET /api/products} --- lijst (200).
+\texttt{GET /api/products/\{id\}} --- één product (200/404).
+\texttt{POST /api/products} --- aanmaken (201 + Location).
+\texttt{PUT /api/products/\{id\}} --- wijzigen (200).
+\texttt{DELETE /api/products/\{id\}} --- verwijderen indien toegestaan (204/409).
+
+\begin{lstlisting}
+POST {"name":"Tiramisu","categoryId":1,"price":7.5,"available":true}
+201  {"id":3,"name":"Tiramisu","categoryId":1,"price":7.5,
+      "available":true,"imageUrl":"/api/products/3/image"}
+\end{lstlisting}
+
+\section{Tafels}
+Tafels beheren. \texttt{available} geeft aan of een tafel beschikbaar is voor
+gebruik. Reserveringen bepalen of een tafel op een bepaald tijdstip bezet is.
+GET: CUSTOMER en STAFF. POST, PUT, DELETE: STAFF.
+
+\texttt{GET /api/tables} --- lijst (200).
+\texttt{GET /api/tables/\{id\}} --- één tafel (200/404).
+\texttt{POST /api/tables} --- aanmaken (201 + Location).
+\texttt{PUT /api/tables/\{id\}} --- wijzigen (200).
+\texttt{DELETE /api/tables/\{id\}} --- verwijderen indien toegestaan (204/409).
+
+\begin{lstlisting}
+POST {"tableNumber":3,"seats":4,"available":true}
+201  {"id":3,"tableNumber":3,"seats":4,"available":true}
+\end{lstlisting}
+
+\section{Reserveringen}
+Klanten beheren eigen reserveringen; personeel mag alle reserveringen lezen,
+wijzigen en annuleren. DELETE is een soft delete (annuleren). Duur: twee uur.
+
+\texttt{GET /api/reservations} --- lijst (200).
+\texttt{GET /api/reservations/\{id\}} --- één reservering (200/404).
+\texttt{POST /api/reservations} --- aanmaken (201 + Location).
+\texttt{PUT /api/reservations/\{id\}} --- wijzigen (200).
+\texttt{DELETE /api/reservations/\{id\}} --- annuleren (204).
+
+\begin{lstlisting}
+POST {"customerName":"Ali","tableId":1,
+      "startsAt":"2030-12-01T17:00:00","guests":2,
+      "remarks":"Bij het raam"}
+201  {"id":2,"customerName":"Ali","tableId":1,
+      "startsAt":"2030-12-01T17:00:00",
+      "endsAt":"2030-12-01T19:00:00","guests":2,
+      "remarks":"Bij het raam","cancelled":false}
+\end{lstlisting}
+
+\section{Bestellingen}
+Bestellingen beheren. Uitsluitend STAFF. Prijzen en productnamen worden
+opgeslagen op het moment van bestellen. De server berekent het totaalbedrag.
+Gefactureerde bestellingen kunnen niet meer worden gewijzigd.
+
+\texttt{GET /api/orders} --- lijst (200).
+\texttt{GET /api/orders/\{id\}} --- één bestelling (200/404).
+\texttt{POST /api/orders} --- aanmaken (201 + Location).
+\texttt{PUT /api/orders/\{id\}} --- wijzigen (200).
+\texttt{DELETE /api/orders/\{id\}} --- verwijderen indien toegestaan (204/409).
+
+\begin{lstlisting}
+POST {"tableId":1,"lines":[{"productId":1,"quantity":2}]}
+201  {"id":1,"tableId":1,"createdAt":"2030-12-01T17:10:00",
+      "lines":[{"productId":1,"productName":"Pasta",
+                "unitPrice":14.5,"quantity":2}],
+      "total":29.0}
+\end{lstlisting}
+
+\section{Facturen}
+Facturen beheren. Uitsluitend STAFF. Per bestelling kan maximaal één factuur
+worden aangemaakt. Met PUT kan alleen de betaalstatus (\texttt{paid}) worden
+gewijzigd. Betaalde facturen kunnen niet worden verwijderd of teruggezet naar
+onbetaald.
+
+\texttt{GET /api/invoices} --- lijst (200).
+\texttt{GET /api/invoices/\{id\}} --- één factuur (200/404).
+\texttt{POST /api/invoices} --- aanmaken (201 + Location).
+\texttt{PUT /api/invoices/\{id\}} --- betaalstatus wijzigen (200).
+\texttt{DELETE /api/invoices/\{id\}} --- onbetaalde factuur verwijderen (204/409).
+
+\begin{lstlisting}
+POST {"orderId":1}
+201  {"id":1,"orderId":1,"createdAt":"2030-12-01T18:00:00",
+      "total":29.0,"paid":false}
+PUT  {"paid":true}
+\end{lstlisting}
+
+\section{Validatie per invoertype}
+\begin{description}[style=nextline,leftmargin=2.4cm]
+  \item[Categorie] \texttt{name} verplicht, niet leeg, max.\ 80 tekens, uniek;
+        \texttt{description} verplicht, max.\ 500 tekens.
+  \item[Product] \texttt{name} max.\ 100 tekens; \texttt{categoryId} bestaand;
+        \texttt{price} niet negatief, max.\ acht gehele en twee decimale cijfers;
+        \texttt{available} boolean.
+  \item[Tafel] \texttt{tableNumber} $\ge 1$ en uniek; \texttt{seats} 1--50;
+        capaciteitsverlaging geweigerd zolang reserveringen gekoppeld zijn.
+  \item[Reservering] \texttt{customerName} max.\ 100 tekens; \texttt{startsAt}
+        in de toekomst; \texttt{guests} 1--50 en passend bij de tafel;
+        \texttt{remarks} max.\ 1000 tekens. Subject komt uit het token.
+  \item[Bestelling] \texttt{lines} 1--100; product uniek en beschikbaar;
+        \texttt{quantity} 1--100. \texttt{total} en \texttt{createdAt} zijn
+        servervelden.
+  \item[Factuur] POST: alleen \texttt{orderId} van een nog niet gefactureerde
+        bestelling. PUT: boolean \texttt{paid}.
+\end{description}
+
+\section{Afbeeldingen en autorisatie}
+\texttt{PUT /api/products/\{productId\}/image} --- STAFF, multipart veld
+\texttt{file}, succes 204. Alleen PNG/JPEG tot 2~MiB en 16 miljoen pixels.
+
+\begin{lstlisting}
+curl.exe -X PUT http://localhost:8080/api/products/1/image ^
+  -H "Authorization: Bearer TOKEN" -F "file=@product.png"
+\end{lstlisting}
+
+\texttt{GET /api/products/\{productId\}/image} --- CUSTOMER en STAFF, bytes met
+\texttt{image/png} of \texttt{image/jpeg}. Ontbrekend: 404.
+
+\begin{description}[style=nextline,leftmargin=3.2cm]
+  \item[Niet ingelogd] GET \texttt{/} en \texttt{/api-docs.html}. API: 401.
+  \item[CUSTOMER] Catalogus, tafels, afbeeldingen lezen; eigen reserveringen.
+  \item[STAFF] Alle API-endpoints.
+  \item[Onbekende rol] Geen API-toegang.
+\end{description}
+
+JWT's moeten geldig ondertekend zijn, de ingestelde issuer hebben en
+\texttt{restaurant-api} in \texttt{aud} bevatten.
+
+Bronnen: mijn ideefase, de eindopdracht, de Spring Security JWT-documentatie en
+de Keycloak-import. OpenAI Codex heeft meegeholpen. De prompts staan in
+\texttt{docs/ai-prompts.md}.
+
+\end{document}
